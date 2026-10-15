@@ -37,6 +37,9 @@ extension Storage {
     func revokagedCertificate(for cert: CertificatePair) {
         guard !cert.revoked else { return }
 		print("Checking revokage for \(cert.nickname ?? "Unknown")")
+        
+        // تێبینی: ئەم بەشە ڕاگیراوە بۆ ڕێگریکردن لە کڕاشکردنی بەرنامەکە لە کاتی پشکنینی OCSP
+        /*
         Zsign.checkRevokage(
             provisionPath: Storage.shared.getFile(.provision, from: cert)?.path ?? "",
             p12Path: Storage.shared.getFile(.certificate, from: cert)?.path ?? "",
@@ -49,6 +52,7 @@ extension Storage {
                 }
             }
         }
+        */
     }
     
     func getProvisionFileDecoded(for cert: CertificatePair) -> Certificate? {

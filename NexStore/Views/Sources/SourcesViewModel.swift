@@ -24,11 +24,23 @@ final class SourcesViewModel: ObservableObject {
 	func fetchSources(_ sources: FetchedResults<AltSource>, refresh: Bool = false, batchSize: Int = 4) async {
 		guard isFinished else { return }
 		
-		// check if sources to be fetched are the same as before, if yes, return
-		// also skip check if refresh is true
-		if !refresh, sources.allSatisfy({ self.sources[$0] != nil }) { return }
+		// خوێندنەوەی تایبەتمەندییەکانی CoreData دەبێت سەدا سەد لەسەر Main Thread بێت
+		let (shouldReturn, validSources) = await MainActor.run { () -> (Bool, [(AltSource, URL)]) in
+			if !refresh, sources.allSatisfy({ self.sources[$0] != nil }) { 
+				return (true, []) 
+			}
+			
+			var extracted: [(AltSource, URL)] = []
+			for source in sources {
+				if let url = source.sourceURL {
+					extracted.append((source, url))
+				}
+			}
+			return (false, extracted)
+		}
 		
-		// isfinished is used to prevent multiple fetches at the same time
+		if shouldReturn { return }
+		
 		isFinished = false
 		defer { isFinished = true }
 		
@@ -36,26 +48,21 @@ final class SourcesViewModel: ObservableObject {
 			self.sources = [:]
 		}
 		
-		let sourcesArray = Array(sources)
-		
-		for startIndex in stride(from: 0, to: sourcesArray.count, by: batchSize) {
-			let endIndex = min(startIndex + batchSize, sourcesArray.count)
-			let batch = sourcesArray[startIndex..<endIndex]
+		for startIndex in stride(from: 0, to: validSources.count, by: batchSize) {
+			let endIndex = min(startIndex + batchSize, validSources.count)
+			let batch = validSources[startIndex..<endIndex]
 			
 			let batchResults = await withTaskGroup(of: (AltSource, ASRepository?).self, returning: [AltSource: ASRepository].self) { group in
-				for source in batch {
+				for item in batch {
 					group.addTask {
-						guard let url = source.sourceURL else {
-							return (source, nil)
-						}
-						
+						// لێرەدا item.1 بریتییە لە URLـەکە کە بە سەلامەتی دەرهێنراوە
 						return await withCheckedContinuation { continuation in
-							self._dataService.fetch(from: url) { (result: RepositoryDataHandler) in
+							self._dataService.fetch(from: item.1) { (result: RepositoryDataHandler) in
 								switch result {
 								case .success(let repo):
-									continuation.resume(returning: (source, repo))
+									continuation.resume(returning: (item.0, repo))
 								case .failure(_):
-									continuation.resume(returning: (source, nil))
+									continuation.resume(returning: (item.0, nil))
 								}
 							}
 						}

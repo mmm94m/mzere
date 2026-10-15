@@ -10,13 +10,17 @@ import Foundation
 class AR: NSObject {
 	private var _data: Data
 	
-	init(with url: URL) {
-		self._data = try! Data(contentsOf: url)
+	init(with url: URL) throws {
+		self._data = try Data(contentsOf: url)
 		super.init()
 	}
 	
 	func extract() async throws -> [ARFileModel] {
-		if [UInt8](_data.subdata(in: Range(0...7))) != [0x21, 0x3c, 0x61, 0x72, 0x63, 0x68, 0x3e, 0x0a] {
+        guard _data.count >= 8 else {
+            throw ARError.badArchive("File is too small")
+        }
+        
+		if [UInt8](_data.subdata(in: 0..<8)) != [0x21, 0x3c, 0x61, 0x72, 0x63, 0x68, 0x3e, 0x0a] {
 			throw ARError.badArchive("Invalid magic")
 		}
 		
@@ -25,6 +29,8 @@ class AR: NSObject {
 		var offset = 0
 		var files: [ARFileModel] = []
 		while offset < data.count {
+            guard offset + 60 <= data.count else { break }
+            
 			let fileInfo = try _getFileInfo(data, offset)
 			files.append(fileInfo)
 			offset += fileInfo.size + 60
@@ -34,36 +40,38 @@ class AR: NSObject {
 	}
 	
 	private func _getFileInfo(_ data: Data, _ offset: Int) throws -> ARFileModel {
-		let size = Int(_removePadding(String(data: data.subdata(in: offset+48..<offset+48+10), encoding: .ascii) ?? "0"))!
-		if size < 1 {
+		let sizeString = _removePadding(String(data: data.subdata(in: offset+48..<offset+48+10), encoding: .ascii) ?? "0")
+        guard let size = Int(sizeString), size >= 0 else {
 			throw ARError.badArchive("Invalid size")
 		}
+        
+        guard offset + 60 + size <= data.count else {
+            throw ARError.badArchive("File content truncated")
+        }
 		
 		let name = _removePadding(String(data: data.subdata(in: offset..<offset+16), encoding: .ascii) ?? "")
 		guard name != "" else {
 			throw ARError.badArchive("Invalid name")
 		}
+        
+        let modDateStr = _removePadding(String(data: data.subdata(in: offset+16..<offset+16+12), encoding: .ascii) ?? "0")
+        let ownerIdStr = _removePadding(String(data: data.subdata(in: offset+28..<offset+28+6), encoding: .ascii) ?? "0")
+        let groupIdStr = _removePadding(String(data: data.subdata(in: offset+34..<offset+34+6), encoding: .ascii) ?? "0")
+        let modeStr = _removePadding(String(data: data.subdata(in: offset+40..<offset+40+8), encoding: .ascii) ?? "0")
 		
 		return ARFileModel(
 			name: name,
-			modificationDate: NSDate(timeIntervalSince1970: Double(_removePadding(String(data: data.subdata(in: offset+16..<offset+16+12), encoding: .ascii) ?? "0"))!) as Date,
-			ownerId: Int(_removePadding(String(data: data.subdata(in: offset+28..<offset+28+6), encoding: .ascii) ?? "0"))!,
-			groupId: Int(_removePadding(String(data: data.subdata(in: offset+34..<offset+34+6), encoding: .ascii) ?? "0"))!,
-			mode: Int(_removePadding(String(data: data.subdata(in: offset+40..<offset+40+8), encoding: .ascii) ?? "0"))!,
+			modificationDate: Date(timeIntervalSince1970: Double(modDateStr) ?? 0),
+			ownerId: Int(ownerIdStr) ?? 0,
+			groupId: Int(groupIdStr) ?? 0,
+			mode: Int(modeStr) ?? 0,
 			size: size,
 			content: data.subdata(in: offset+60..<offset+60+size)
 		)
 	}
 	
 	private func _removePadding(_ paddedString: String) -> String {
-		let data = paddedString.data(using: .utf8)!
-		
-		guard let firstNonSpaceIndex = data.firstIndex(of: UInt8(ascii: " ")) else {
-			return paddedString
-		}
-		
-		let actualData = data[..<firstNonSpaceIndex]
-		return String(data: actualData, encoding: .utf8)!
+        return paddedString.trimmingCharacters(in: .whitespacesAndNewlines)
 	}
 }
 

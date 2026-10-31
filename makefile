@@ -1,6 +1,6 @@
-NAME := NexStore
+NAME := AshteMobile
 PLATFORM := iphoneos
-SCHEMES := NexStore
+SCHEMES := AshteMobile
 TMP := $(TMPDIR)/$(NAME)
 STAGE := $(TMP)/stage
 APP := $(TMP)/Build/Products/Release-$(PLATFORM)
@@ -26,7 +26,7 @@ deps:
 
 $(SCHEMES): deps
 	xcodebuild \
-	    -project NexStore.xcodeproj \
+	    -project AshteMobile.xcodeproj \
 	    -scheme "$@" \
 	    -configuration Release \
 	    -arch arm64 \
